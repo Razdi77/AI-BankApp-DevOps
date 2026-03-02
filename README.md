@@ -52,27 +52,74 @@ graph TD
 
 ## 🚀 Setup & Deployment Guide
 
-Follow these phases to implement the project exactly as documented.
+Follow these five phases to implement the project exactly as documented.
 
 ### Phase 1: AWS Infrastructure Foundation
 
-1.  **Amazon ECR**: Create a private repository named `devsecops-bankapp`. Save the **Repository URI**.
-2.  **Amazon RDS**: Launch a MySQL 8.0 instance (Free Tier).
-    - **Database Name**: `bankappdb`
-    - **Security**: Allow **Port 3306** from your Application EC2's Security Group.
-3.  **App EC2 (Web Tier)**: Launch an Ubuntu 22.04 instance.
-    - **Security**: Open **Port 22** (SSH) and **Port 8080** (App).
-    - **IAM Profile**: Attach a role with `SecretsManagerReadWrite` and `AmazonEC2ContainerRegistryPowerUser`.
-4.  **Ollama EC2 (AI Tier)**: Launch a separate EC2.
-    - **Port**: Open **Port 11434** to the App EC2's Security Group.
+#### 1. Amazon ECR (Container Registry)
+- Create a private repository named `devsecops-bankapp`.
+- **Note**: Copy the **Repository URI** for later use in GitHub Secrets.
 
-### Phase 2: Security & Identity (IAM OIDC)
+#### 2. Amazon RDS (MySQL Database)
+- Launch a MySQL 8.0 instance (Free Tier).
+- **Security Group**: Allow **Port 3306** (Inbound) from your **App EC2's Security Group**.
+- **Note**: Copy the **RDS Endpoint**.
+
+#### 3. Application EC2 (Web Tier)
+- Launch an Ubuntu 22.04 instance.
+- **Security Group**: Open **Port 22** (SSH) and **Port 8080** (App).
+- **IAM Profile (CRITICAL)**: Attach a role to this EC2 with the following managed policies:
+  - `AmazonEC2ContainerRegistryPowerUser`
+  - `SecretsManagerReadWrite`
+- **Install Prerequisites**:
+  ```bash
+  sudo apt update && sudo apt install -y docker.io docker-compose awscli jq mysql-client
+  sudo usermod -aG docker ubuntu && newgrp docker
+  ```
+
+#### 4. Ollama EC2 (AI Tier)
+- Launch a separate Ubuntu EC2 (t3.medium recommended).
+- **Security Group**: Open **Port 11434** to the **App EC2's Security Group**.
+
+---
+
+### Phase 2: Database Initialization
+
+Once your RDS is live and you have installed the `mysql-client` on your App EC2:
+
+1.  **Connect to RDS**:
+    ```bash
+    mysql -h <YOUR-RDS-ENDPOINT> -u <YOUR-USERNAME> -p
+    ```
+2.  **Create the Database**:
+    ```sql
+    CREATE DATABASE bankappdb;
+    EXIT;
+    ```
+
+---
+
+### Phase 3: AI Tier Setup (Ollama)
+
+Automate your Ollama server setup by running this script on your **AI Tier EC2** or use it as [USER DATA While launching EC2](scripts/ollama-setup.sh):
+
+```bash
+# Download and run the automation script
+curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/main/scripts/ollama-setup.sh | bash
+```
+*This script installs Ollama, enables external access (0.0.0.0), and pulls the `tinyllama` model.*
+
+---
+
+### Phase 4: Security & Identity (IAM OIDC)
 
 We use **GitHub OIDC** for passwordless AWS authentication.
 
-1.  **Identity Provider**: Add `https://token.actions.githubusercontent.com` with audience `sts.amazonaws.com`.
-2.  **IAM Role**: Create a role named `GitHubActionsRole` for Web Identity.
-3.  **Trust Policy**:
+1.  **Identity Provider**: In IAM, Add Provider -> OpenID Connect.
+    - URL: `https://token.actions.githubusercontent.com`
+    - Audience: `sts.amazonaws.com`
+2.  **IAM Role**: Create a role named `GitHubActionsRole` for **Web Identity**.
+3.  **Trust Policy**: Use this JSON (Replace `<ACCOUNT-ID>`, `<ORG>`, and `<REPO>`):
     ```json
     {
       "Version": "2012-10-17",
@@ -86,52 +133,58 @@ We use **GitHub OIDC** for passwordless AWS authentication.
       ]
     }
     ```
-
-### Phase 3: AI Tier Automation
-
-Automate your Ollama server setup using the provided script at [`scripts/ollama-setup.sh`](scripts/ollama-setup.sh).
-
-**Manual Command on Ollama EC2:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/<OWNER>/<REPO>/main/scripts/ollama-setup.sh | bash
-```
-*This installs Ollama, configures external network access, and pulls the `tinyllama` model.*
-
-### Phase 4: Secrets Management
-
-Create a secret in **AWS Secrets Manager** named `bankapp/prod-secrets` with:
-- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
-- `OLLAMA_URL`: `http://<OLLAMA_PRIVATE_IP>:11434`
-
-### Phase 5: GitHub Repository Configuration
-
-Add these **Action Secrets** to your GitHub repository:
-- `AWS_ROLE_ARN`, `AWS_REGION`, `AWS_ACCOUNT_ID`
-- `ECR_REPOSITORY`, `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`
+4.  **Permissions**: Attach `AmazonEC2ContainerRegistryPowerUser` to this role.
 
 ---
 
-## 🛠️ CI/CD Pipeline Logic
+### Phase 5: Secrets & GitHub Configuration
 
-The pipeline ([`.github/workflows/devsecops.yml`](.github/workflows/devsecops.yml)) automates everything after a `git push`:
+#### 1. AWS Secrets Manager
+Create a secret named `bankapp/prod-secrets` with these EXACT keys:
+- `DB_HOST`: <RDS-Endpoint>
+- `DB_PORT`: `3306`
+- `DB_NAME`: `bankappdb`
+- `DB_USER`: <Your-RDS-Username>
+- `DB_PASSWORD`: <Your-RDS-Password>
+- `OLLAMA_URL`: `http://<OLLAMA-PRIVATE-IP>:11434`
+
+#### 2. GitHub Action Secrets
+Add these to your repository settings (Settings -> Secrets -> Actions):
+- `AWS_ROLE_ARN`: <ARN-of-GitHubActionsRole>
+- `AWS_REGION`: <Your-Region>
+- `AWS_ACCOUNT_ID`: <Your-12-digit-ID>
+- `ECR_REPOSITORY`: `devsecops-bankapp`
+- `EC2_HOST`: <App-EC2-Public-IP>
+- `EC2_USER`: `ubuntu`
+- `EC2_SSH_KEY`: <Your-Private-Key-Content>
+
+---
+
+## 🛠️ CI/CD Pipeline Workflow
+
+The pipeline runs automatically on every `git push`:
 
 1.  **Build**: Compiles Java 21 code with Maven.
-2.  **Containerize**: Builds a Docker image and pushes it to **ECR** using OIDC auth.
-3.  **Connect**: SSHes into the App EC2 using `appleboy/ssh-action`.
-4.  **Inject**: Environment variables are pulled directly from **AWS Secrets Manager** into a `.env` file on the fly.
-5.  **Deploy**: Runs `docker compose pull` and `docker compose up -d` to go live.
+2.  **Containerize**: Builds and pushes the Docker image to ECR using OIDC.
+3.  **Transfer**: Copies [`app-tier.yml`](app-tier.yml) to the App EC2.
+4.  **Deploy**: 
+    - Fetches credentials from Secrets Manager.
+    - Creates a dynamic `.env` file.
+    - Runs `docker compose up -d`.
 
 ---
 
-## 🧪 Verification & Troubleshooting
+## 🧪 Verification Commands
 
-- **Check App Status**: `curl http://<EC2-IP>:8080/actuator/health`
-- **View Container Logs**: `docker logs bankapp`
-- **Manual DB Access**:
+- **Check App Status**: `docker ps`
+- **Verify DB Rows**: 
   ```bash
-  mysql -h <RDS-ENDPOINT> -u <USER> -p bankappdb -e "SELECT * FROM accounts;"
+  mysql -h <RDS-ENDPOINT> -u admin -p bankappdb -e "SELECT * FROM accounts;"
   ```
-- **OIDC Errors?**: Ensure your IAM Trust Policy `sub` condition matches your GitHub Repository path exactly.
+- **Check AI Connectivity**:
+  ```bash
+  nc -zv <OLLAMA-PRIVATE-IP> 11434
+  ```
 
 ---
 
