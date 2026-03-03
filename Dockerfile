@@ -1,11 +1,11 @@
 # Build stage
-FROM eclipse-temurin:21-jdk-jammy AS build
+FROM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /app
 COPY . .
 RUN chmod +x mvnw && ./mvnw clean package -DskipTests -B
 
-# Run stage
-FROM eclipse-temurin:21-jre-jammy
+# Run stage - alpine has significantly fewer CVEs than ubuntu/jammy
+FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 # Create a non-root user for security

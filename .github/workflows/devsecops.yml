@@ -118,6 +118,14 @@ jobs:
       - name: Build Docker Image (for scanning)
         run: docker build -t bankapp:scan-${{ github.sha }} .
 
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
       - name: Run Trivy Image Scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -128,6 +136,7 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL'
           output: trivy-report.txt
+          trivy-config: trivy.yaml
 
       - name: Upload Trivy Report
         uses: actions/upload-artifact@v4
