@@ -2,7 +2,7 @@
 
 # DevSecOps Banking Application
 
-A high-performance, containerized financial platform built with Spring Boot 3, Java 21, and integrated Contextual AI. This project implements a secure "Golden Pipeline" using GitHub Actions, OIDC authentication, and AWS managed services.
+A high-performance, containerized financial platform built with Spring Boot 3, Java 21, and integrated Contextual AI. This project implements a secure "DevSecOps Pipeline" using GitHub Actions, OIDC authentication, and AWS managed services.
 
 [![Java Version](https://img.shields.io/badge/Java-21-blue.svg)](https://www.oracle.com/java/technologies/javase/jdk21-archive-downloads.html)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.1-brightgreen.svg)](https://spring.io/projects/spring-boot)
@@ -63,7 +63,7 @@ graph TD
 
 ---
 
-## Security Pipeline (Golden Pipeline)
+## Security Pipeline (DevSecOps Pipeline)
 
 The CI/CD pipeline enforces **7 sequential security gates** before any code reaches production:
 
@@ -151,7 +151,7 @@ The CI/CD pipeline enforces **7 sequential security gates** before any code reac
 4. **AI Engine Tier (Ollama)**:
    - Deploy a dedicated Ubuntu EC2 instance.
    - Open Inbound Port `11434` from the Application EC2 Security Group.
-   
+
       > [!NOTE]
       > 
       > Better to give `name` to Security Group created.
@@ -258,14 +258,19 @@ Configure the following Action Secrets within your GitHub repository settings:
 
 ## Continuous Integration and Deployment
 
-The [DevSecOps Pipeline](.github/workflows/devsecops.yml) automates the lifecycle:
+The [DevSecOps Pipeline](.github/workflows/devsecops.yml) enforces **7 sequential security gates** before any code reaches production. Every `git push` to the `main` or `devsecops` branch triggers the full pipeline automatically.
 
-- **Build**: Compiles the Java application and executes quality checks.
-- **Containerization**: Constructs a Docker image and pushes it to ECR via OIDC.
-- **Orchestration**:
-  - Dynamically retrieves production secrets from AWS Secrets Manager.
-  - Generates a localized `.env` file on the Application EC2.
-  - Executes `docker compose up -d --build` to safely recreate the application container.
+| Gate | Job | Tool | Action |
+| :---: | :--- | :--- | :--- |
+| 1 | `sast` | Semgrep | Scans Java source code for OWASP Top 10 and hardcoded secrets. Fails pipeline on any Critical finding. |
+| 2 | `sca` | OWASP Dependency Check | Scans `pom.xml` dependencies for known CVEs. Fails on CVSS score >= 7. |
+| 3 | `build` | Maven | Compiles and packages the application. Runs only after Gates 1 & 2 pass. |
+| 4 | `image_scan` | Trivy | Builds the Docker image and scans it for OS and library vulnerabilities. Fails on any Critical CVE. |
+| 5 | `push_to_ecr` | Amazon ECR | Pushes the scanned and verified image to the container registry. |
+| 6 | `deploy` | SSH / Docker Compose | Fetches secrets from AWS Secrets Manager, generates `.env`, and recreates the container. |
+| 7 | `dast` | OWASP ZAP | Runs a baseline web vulnerability scan against the live application. |
+
+All scan reports (OWASP, Trivy, ZAP) are uploaded as downloadable **Artifacts** in each GitHub Actions run.
 
   ![github-actions](screenshots/16.png)
 
