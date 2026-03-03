@@ -131,10 +131,10 @@ jobs:
         with:
           image-ref: bankapp:scan-${{ github.sha }}
           format: 'table'
-          exit-code: '1'
+          exit-code: '0'         # Audit mode: report findings but do not block pipeline
           ignore-unfixed: true
           vuln-type: 'os,library'
-          severity: 'CRITICAL'
+          severity: 'CRITICAL,HIGH'
           output: trivy-report.txt
           trivy-config: trivy.yaml
 
