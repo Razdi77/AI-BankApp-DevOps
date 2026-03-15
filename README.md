@@ -200,7 +200,7 @@ Create a secret named `bankapp/prod-secrets` in `Other type of secret` with the 
 | `DB_HOST` | The MySQL container service name | `db` |
 | `DB_PORT` | The database port | `3306` |
 | `DB_NAME` | The application database name | `bankappdb` |
-| `DB_USER` | The database username | `root` |
+| `DB_USER` | The database username | `bankuser` |
 | `DB_PASSWORD` | The database password | `Test@123` |
 | `OLLAMA_URL` | The private URL for the AI tier | `http://<PRIVATE-IP>:11434` |
 
